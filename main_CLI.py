@@ -32,9 +32,9 @@ def show_banner():
     ║{GREEN}               Created By: 4dmin attacker               {BLUE}║
     ╚════════════════════════════════════════════════════════╝{END}
     """
-    print(banner) # هيطبع الشكل
+    print(banner) # print banner
 
-def run_command(cmd): # تشغيل الاوامر علي الجهاز
+def run_command(cmd): # run commands in sys
     return subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
 def cleanup_and_exit(sig, frame): # عند الخروج من البرنامج يعيد المحول لما كان علية و يحولة لوضع managed
@@ -91,8 +91,8 @@ def scan_networks():
                 if "Station" in row[0]: break
                 if start:
                     ssid = row[13].strip() or "Hidden_SSID"
-                    net_list.append({"bssid": row[0].strip(), "chan": row[3].strip(), "ssid": ssid})
-                    print(f"{len(net_list):<3} | {ssid[:20]:<20} | {row[0]:<17} | {row[3]}")
+                    net_list.append({"bssid": row[0].strip(), "chan": row[3].strip(), "ssid": ssid}) # srearch [bssid, channel, ssid, id] in csv file and add result to list "net_list"
+                    print(f"{len(net_list):<3} | {ssid[:20]:<20} | {row[0]:<17} | {row[3]}") # print result after srearching
     return net_list
 
 # Dos attack
@@ -114,6 +114,8 @@ def capture_handshake_smart(target):
     if not os.path.exists(folder_name):
         os.makedirs(folder_name)
         print(f"[+] Created directory: {folder_name}")
+    else:
+        print(f"cant create handshake forder, rmove {folder_name}, or rename it, because create handshake folder")
 
     cap_file_path = os.path.join(folder_name, "handshake_data")
 
@@ -137,7 +139,8 @@ def capture_handshake_smart(target):
         handshake_captured = True
         dump_proc.terminate()
         final_cap = f"{cap_file_path}-01.cap"
-        print(f"\n[+] Stop. Data saved to: {final_cap}")
+        currunt_path = os.getcwd()
+        print(f"\n[+] Stop. Data saved to: {currunt_path}/{final_cap}")
         return final_cap
 # handshake cracking  
 def crack_handshake(target):
@@ -162,7 +165,7 @@ def crack_handshake(target):
 def main():
     global selected_iface
     show_banner()
-    if os.getuid() != 0: print("[-] Error: Run as root (sudo)!"); return
+    if os.getuid() != 0: print("[-] Error: Run as root (sudo)!"); return 
 
     ifaces = get_interfaces()
     if not ifaces: print("[-] No WiFi cards found."); return
@@ -171,7 +174,7 @@ def main():
     idx = int(input("\nSelect Interface: "))
     selected_iface = ifaces[idx]['name']
     
-    if ifaces[idx]['mode'] != 'monitor': set_monitor_mode(selected_iface) # set monitor mode
+    if ifaces[idx]['mode'] != 'monitor': set_monitor_mode(selected_iface) 
 
     while True:
         nets = scan_networks()
@@ -184,7 +187,7 @@ def main():
         except: continue
 
         print(f"\nTarget: {target['ssid']}")
-        print(f"1. Monitor (No Attack)\n2. Smart Handshake (Auto-Deauth + Folder)\n3. Crack Handshake (from folder)\n4. Exit") # اختار الهجمة المناسبة
+        print(f"1. Monitor (No Attack)\n2. Smart Handshake (Auto-Deauth + Folder)\n3. Crack Handshake (from folder)\n4. Exit") 
         mode = input("Select: ")
 
         if mode == '1':

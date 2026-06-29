@@ -67,57 +67,27 @@ pip install -e .
 
 ### CLI Mode
 
-#### List Available Interfaces
-
 ```bash
-netstalker-cli --list-interfaces
-```
-
-#### Scan Networks
-
-```bash
-netstalker-cli --scan-networks -i wlan0
-```
-
-#### Help
-
-```bash
-netstalker-cli --help
+sudo python main_CLI.py
 ```
 
 ### GUI Mode
 
 ```bash
-netstalker-gui
-```
-
-Or directly:
-
-```bash
-python -m netstalker.gui
+sudo python main_GUI.py
 ```
 
 ## Project Structure
 
 ```
 NetStalker/
-netstalker/
-   __init__.py
-   cli.py                 # Command-line interface
-   gui.py                 # GUI interface
-   core/
-      __init__.py
-      network.py         # Network management
-      scanner.py         # Network scanning
-      attack.py          # Attack operations
-   utils/
-      __init__.py
-      logger.py          # Logging setup
-      colors.py          # Color schemes
-setup.py
-requirements.txt
-README.md
-LICENSE
+├── main_CLI.py          # Command-line interface
+├── main_GUI.py          # GUI interface
+├── setup.py             # Package setup
+├── requirements.txt     # Python dependencies
+├── README.md            # This file
+├── LICENSE              # MIT License
+└── .gitignore           # Git ignore rules
 ```
 
 ## Features Details
@@ -145,18 +115,6 @@ Captures WPA/WPA2 4-way handshake:
 - Automatic format conversion
 - Progress monitoring
 
-## Configuration
-
-Create `config.py` in the project root for custom settings:
-
-```python
-# config.py
-LOG_LEVEL = "INFO"
-SCAN_DURATION = 15
-DEAUTH_PACKETS = 0  # 0 = unlimited
-OUTPUT_DIR = "captures/"
-```
-
 ## Troubleshooting
 
 ### Monitor Mode Issues
@@ -172,18 +130,18 @@ sudo airmon-ng start wlan0
 
 ### Permission Denied
 
-Ensure you run with sudo or configure passwordless sudo:
+Ensure you run with sudo:
 
 ```bash
-sudo -l
-sudo python -m netstalker.gui
+sudo python main_CLI.py
+sudo python main_GUI.py
 ```
 
 ### No Networks Found
 
 1. Verify adapter supports monitor mode
 2. Check antenna status: `ifconfig`
-3. Run longer scan: `netstalker-cli --scan-networks -i wlan0`
+3. Run longer scan manually
 
 ## Legal Notice
 
@@ -217,19 +175,11 @@ For issues and feature requests, please visit: [GitHub Issues](https://github.co
 
 ## Changelog
 
-### v2.0.0 (Current)
-- Complete code refactor
-- Professional package structure
-- Enhanced error handling
-- Improved documentation
-- Clean code without unnecessary formatting
-- Better separation of concerns
-- Added proper logging
-- CLI and GUI separation
-
 ### v1.0.0
 - Initial release
 - Basic scanning and attack features
+- CLI and GUI interfaces
+- Professional code structure
 
 ---
 
